@@ -1,3 +1,8 @@
+import pg from "pg";
+import { TransactionManager } from "./transaction-manager.js";
+import { isReadOnlyQuery, safelyReleaseClient, generateTransactionId } from "./utils.js";
+import { SCHEMA_PATH } from "./types.js";
+
 export async function handleExecuteRollback(
   transactionManager: TransactionManager, 
   transactionId: string
@@ -65,7 +70,7 @@ export async function handleExecuteRollback(
       }],
       isError: false,
     };
-  } catch (error: any) {
+  } catch (error) {
     // If there's an error during rollback
     // Mark as released before actually releasing
     transaction.released = true;
@@ -74,22 +79,21 @@ export async function handleExecuteRollback(
     // Clean up
     transactionManager.removeTransaction(transactionId);
     
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
     return {
       content: [{ 
         type: "text", 
         text: JSON.stringify({
           status: "error",
-          message: `Error rolling back transaction: ${error.message}`,
+          message: `Error rolling back transaction: ${errorMessage}`,
           transaction_id: transactionId
         }, null, 2) 
       }],
       isError: true,
     };
   }
-}import pg from "pg";
-import { TransactionManager } from "./transaction-manager.js";
-import { isReadOnlyQuery, safelyReleaseClient, generateTransactionId } from "./utils.js";
-import { SCHEMA_PATH } from "./types.js";
+}
 
 export async function handleExecuteQuery(pool: pg.Pool, sql: string) {
   const client = await pool.connect();
@@ -128,7 +132,7 @@ export async function handleExecuteQuery(pool: pg.Pool, sql: string) {
         text: JSON.stringify({
           rows: result.rows,
           rowCount: result.rowCount,
-          fields: result.fields.map(f => ({
+          fields: result.fields.map((f: pg.FieldDef) => ({
             name: f.name,
             dataTypeID: f.dataTypeID
           })),
@@ -194,24 +198,26 @@ export async function handleExecuteDML(
         }],
         isError: false,
       };
-    } catch (error: any) {
+    } catch (error) {
       // If there's an error, roll back and release the client
       await client.query("ROLLBACK");
       safelyReleaseClient(client);
+      
+      const errorMessage = error instanceof Error ? error.message : String(error);
       
       return {
         content: [{ 
           type: "text", 
           text: JSON.stringify({
             status: "error",
-            message: `Error executing statement: ${error.message}`,
+            message: `Error executing statement: ${errorMessage}`,
             sql: sql
           }, null, 2) 
         }],
         isError: true,
       };
     }
-  } catch (error: any) {
+  } catch (error) {
     // If there's an error starting the transaction
     safelyReleaseClient(client);
     throw error;
@@ -285,7 +291,7 @@ export async function handleExecuteCommit(
       }],
       isError: false,
     };
-  } catch (error: any) {
+  } catch (error) {
     // If there's an error during commit, try to roll back
     try {
       await transaction.client.query("ROLLBACK");
@@ -300,12 +306,14 @@ export async function handleExecuteCommit(
     // Clean up
     transactionManager.removeTransaction(transactionId);
     
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
     return {
       content: [{ 
         type: "text", 
         text: JSON.stringify({
           status: "error",
-          message: `Error committing transaction: ${error.message}`,
+          message: `Error committing transaction: ${errorMessage}`,
           transaction_id: transactionId
         }, null, 2) 
       }],
@@ -475,7 +483,7 @@ export async function handleListResources(pool: pg.Pool, resourceBaseUrl: URL) {
     );
     
     return {
-      resources: result.rows.map((row) => ({
+      resources: result.rows.map((row: { table_name: string }) => ({
         uri: new URL(`${row.table_name}/${SCHEMA_PATH}`, resourceBaseUrl).href,
         mimeType: "application/json",
         name: `"${row.table_name}" database schema`,
@@ -527,17 +535,17 @@ export async function handleReadResource(pool: pg.Pool, resourceUri: string) {
         AND i.indisprimary
     `, [`public.${tableName}`]);
     
-    const primaryKeys = pkResult.rows.map(row => row.column_name);
+    const primaryKeys = pkResult.rows.map((row: { column_name: string }) => row.column_name);
     
     // Format the column information with additional details
-    const formattedColumns = columnsResult.rows.map(column => {
+    const formattedColumns = columnsResult.rows.map((column: Record<string, unknown>) => {
       return {
-        column_name: column.column_name,
-        data_type: column.data_type,
+        column_name: String(column.column_name),
+        data_type: String(column.data_type),
         max_length: column.character_maximum_length,
         default_value: column.column_default,
-        nullable: column.is_nullable === 'YES',
-        is_primary_key: primaryKeys.includes(column.column_name)
+        nullable: String(column.is_nullable) === 'YES',
+        is_primary_key: primaryKeys.includes(String(column.column_name))
       };
     });
 

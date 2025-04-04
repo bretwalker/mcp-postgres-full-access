@@ -1,10 +1,12 @@
 import pg from "pg";
 import { TrackedTransaction } from "./types.js";
 import { safelyReleaseClient } from "./utils.js";
+// Define the Timeout type
+type Timeout = ReturnType<typeof setTimeout>;
 
 export class TransactionManager {
   private activeTransactions = new Map<string, TrackedTransaction>();
-  private monitorInterval: NodeJS.Timeout | null = null;
+  private monitorInterval: Timeout | null = null;
   private transactionTimeoutMs: number;
   private monitorIntervalMs: number;
   private monitorEnabled: boolean;

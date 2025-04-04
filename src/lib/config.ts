@@ -1,3 +1,5 @@
+import process from 'node:process';
+
 /**
  * Configuration settings loaded from environment variables
  */
